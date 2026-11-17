@@ -2,20 +2,22 @@
   const $ = (s, c = document) => c.querySelector(s), $$ = (s, c = document) => [...c.querySelectorAll(s)];
   const body = document.body;
   const ss = { get(k){try{return sessionStorage.getItem(k)}catch(e){return null}}, set(k,v){try{sessionStorage.setItem(k,v)}catch(e){}} };
+  const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const finePointer = matchMedia('(hover: hover) and (pointer: fine)').matches;
 
   /* ---------- Preloader / page enter ---------- */
   const pre = $('#preloader'), pt = $('.pt');
   const ready = () => body.classList.add('ready');
-  if (pre && !ss.get('seen')) {
+  if (pre && !ss.get('seen') && !reduced) {
     body.classList.add('loading');
-    const num = $('#plCount'), bar = $('#plBar'), start = performance.now(), dur = 2400;
+    const num = $('#plCount'), bar = $('#plBar'), start = performance.now(), dur = 1300;
     const tick = t => {
       const p = Math.min((t - start) / dur, 1), e = 1 - Math.pow(1 - p, 3), v = Math.round(e * 100);
       num.textContent = v; bar.style.width = v + '%';
       if (p < 1) return requestAnimationFrame(tick);
       setTimeout(() => {
         pre.classList.add('done'); body.classList.remove('loading'); ss.set('seen', 1);
-        setTimeout(ready, 500); setTimeout(() => pre.remove(), 1400);
+        setTimeout(ready, 350); setTimeout(() => pre.remove(), 1200);
       }, 250);
     };
     requestAnimationFrame(tick);
@@ -28,11 +30,15 @@
   /* ---------- Page leave transition ---------- */
   $$('a[href]').forEach(a => {
     const h = a.getAttribute('href');
-    if (!h || h.startsWith('#') || h.startsWith('mailto') || h.startsWith('tel') || a.target === '_blank' || /^https?:/.test(h)) return;
+    if (!h || h.startsWith('#') || h.startsWith('mailto') || h.startsWith('tel') || a.target === '_blank' || /^https?:/.test(h) || a.hasAttribute('download')) return;
     a.addEventListener('click', e => {
+      if (e.metaKey || e.ctrlKey || e.shiftKey || e.button === 1) return;
+      const target = new URL(h, location.href);
+      if (target.pathname === location.pathname && target.hash) { closeMenu(); return; }
+      if (reduced) return;
       e.preventDefault(); body.classList.remove('menu-open');
       pt.classList.remove('reveal'); void pt.offsetWidth; pt.classList.add('leave');
-      setTimeout(() => location.href = h, 750);
+      setTimeout(() => location.href = h, 450);
     });
   });
   window.addEventListener('pageshow', e => { if (e.persisted) { pt.classList.remove('leave'); pt.classList.add('reveal'); } });
@@ -42,10 +48,16 @@
   $$('.nav a').forEach(a => a.getAttribute('href') === page && a.classList.add('active'));
 
   /* ---------- Menu ---------- */
-  $('.menu-btn')?.addEventListener('click', () => body.classList.toggle('menu-open'));
+  const mbtn = $('.menu-btn');
+  function closeMenu(){ body.classList.remove('menu-open'); mbtn?.setAttribute('aria-expanded', 'false'); mbtn?.setAttribute('aria-label', 'Open menu'); }
+  mbtn?.addEventListener('click', () => { const open = body.classList.toggle('menu-open'); mbtn.setAttribute('aria-expanded', open); mbtn.setAttribute('aria-label', open ? 'Close menu' : 'Open menu'); });
+  addEventListener('keydown', e => { if (e.key === 'Escape') closeMenu(); });
+  addEventListener('resize', () => { if (innerWidth > 800) closeMenu(); });
 
   /* ---------- Cursor ---------- */
   const dot = $('.cursor'), ring = $('.cursor-ring');
+  if (!finePointer) { dot?.remove(); ring?.remove(); }
+  if (finePointer) {
   let mx = innerWidth / 2, my = innerHeight / 2, rx = mx, ry = my;
   addEventListener('mousemove', e => { mx = e.clientX; my = e.clientY; dot.style.transform = `translate(${mx - 4}px,${my - 4}px)`; });
   (function loop(){ rx += (mx - rx) * .15; ry += (my - ry) * .15; ring.style.left = rx + 'px'; ring.style.top = ry + 'px'; requestAnimationFrame(loop); })();
@@ -58,6 +70,7 @@
     el.addEventListener('mouseenter', () => { ring.classList.add('view'); ring.textContent = el.dataset.cursor; });
     el.addEventListener('mouseleave', () => { ring.classList.remove('view'); ring.textContent = ''; });
   });
+  }
 
   /* ---------- Header hide + progress ---------- */
   const header = $('.header'), prog = $('.progress'); let last = 0;
@@ -105,7 +118,7 @@
   $$('[data-count]').forEach(el => cio.observe(el));
 
   /* ---------- Magnetic ---------- */
-  $$('[data-magnetic]').forEach(el => {
+  finePointer && $$('[data-magnetic]').forEach(el => {
     el.addEventListener('mousemove', e => { const r = el.getBoundingClientRect(); el.style.transform = `translate(${(e.clientX - r.left - r.width / 2) * .3}px,${(e.clientY - r.top - r.height / 2) * .3}px)`; });
     el.addEventListener('mouseleave', () => { el.style.transition = 'transform .6s cubic-bezier(.16,1,.3,1)'; el.style.transform = ''; setTimeout(() => el.style.transition = '', 600); });
   });
@@ -141,7 +154,7 @@
   if (pv) {
     const art = $('.art', pv); let px2 = 0, py2 = 0, cx = 0, cy = 0;
     $$('.wlist a').forEach(a => {
-      a.addEventListener('mouseenter', () => { if (a.dataset.img) art.style.background = `url(${a.dataset.img}) center/cover, linear-gradient(135deg,#6C151E,#0F3D3A)`; pv.classList.add('show'); });
+      a.addEventListener('mouseenter', () => { if (a.dataset.img) art.style.background = `url(${a.dataset.img}) center/cover, url(${a.dataset.imgFallback || ''}) center/cover, linear-gradient(135deg,#6C151E,#0F3D3A)`; pv.classList.add('show'); });
       a.addEventListener('mouseleave', () => pv.classList.remove('show'));
     });
     addEventListener('mousemove', e => { px2 = e.clientX; py2 = e.clientY; });
@@ -182,8 +195,13 @@
   });
 
   /* ---------- Image fallback (shows brand gradient if a photo fails) ---------- */
+  $$('img[data-fallback]').forEach(img => {
+    const useLocal = () => { if (img.dataset.fallbackUsed) return; img.dataset.fallbackUsed = 1; img.removeAttribute('srcset'); img.removeAttribute('sizes'); img.src = img.dataset.fallback; };
+    img.addEventListener('error', useLocal);
+    if (img.complete && img.naturalWidth === 0 && img.src) useLocal();
+  });
   $$('.ph img').forEach(img => {
-    const fail = () => img.parentElement.classList.add('fail');
+    const fail = () => { if (img.dataset.fallback && !img.dataset.fallbackUsed) return; img.parentElement.classList.add('fail'); };
     img.addEventListener('error', fail);
     if (img.complete && img.naturalWidth === 0 && img.src) fail();
   });
@@ -195,12 +213,9 @@
 /* ---------- Story: growing stem + chapter indicator ---------- */
 (() => {
   const story = document.querySelector('.story'); if (!story) return;
-  const path = story.querySelector('.stem path'), ind = document.querySelector('.chapter-ind'), label = ind.querySelector('span');
-  path.setAttribute('pathLength', 1);
+  const ind = document.querySelector('.chapter-ind'), label = ind.querySelector('span');
   const upd = () => {
     const r = story.getBoundingClientRect();
-    const p = Math.min(Math.max((innerHeight * .6 - r.top) / r.height, 0), 1);
-    path.style.strokeDashoffset = 1 - p;
     ind.classList.toggle('show', r.top < innerHeight * .5 && r.bottom > innerHeight * .5);
   };
   addEventListener('scroll', upd, { passive: true }); upd();
