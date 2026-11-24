@@ -746,3 +746,8 @@ body.loading .wa-float,.menu-open .wa-float{opacity:0;pointer-events:none}
 /* work grid: cards sit in even rows (no staggered offset) */
 .work-card:nth-child(even){margin-top:0!important}
 .work-grid{align-items:start}
+
+
+.nl-wrap {
+  display: none !important;
+}
